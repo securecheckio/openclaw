@@ -21,6 +21,7 @@ import {
   appendAssistantMessageToSessionTranscript,
   resolveMirroredTranscriptText,
 } from "../../config/sessions.js";
+import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { markdownToSignalTextChunks, type SignalTextStyleRange } from "../../signal/format.js";
 import { sendMessageSignal } from "../../signal/send.js";
 import { normalizeReplyPayloadsForDelivery } from "./payloads.js";
@@ -233,10 +234,53 @@ export async function deliverOutboundPayloads(params: {
       })
     : undefined;
 
+  /**
+   * Run message_sending hook before delivery.
+   * Plugins can block, modify, or audit outbound messages.
+   */
+  const runOutboundHook = async (text: string): Promise<{ allowed: boolean; content: string }> => {
+    const hookRunner = getGlobalHookRunner();
+
+    if (!hookRunner?.hasHooks("message_sending")) {
+      return { allowed: true, content: text };
+    }
+
+    try {
+      const hookResult = await hookRunner.runMessageSending(
+        {
+          to,
+          content: text,
+          metadata: {},
+        },
+        {
+          channelId: channel,
+          accountId: accountId ?? undefined,
+          conversationId: to,
+        },
+      );
+
+      if (hookResult?.cancel) {
+        return { allowed: false, content: text };
+      }
+
+      return {
+        allowed: true,
+        content: hookResult?.content ?? text,
+      };
+    } catch {
+      // Fail open on hook errors
+      return { allowed: true, content: text };
+    }
+  };
+
   const sendTextChunks = async (text: string) => {
     throwIfAborted(abortSignal);
     if (!handler.chunker || textLimit === undefined) {
-      results.push(await handler.sendText(text));
+      const hookCheck = await runOutboundHook(text);
+      if (!hookCheck.allowed) {
+        return;
+      }
+      results.push(await handler.sendText(hookCheck.content));
       return;
     }
     if (chunkMode === "newline") {
@@ -256,7 +300,11 @@ export async function deliverOutboundPayloads(params: {
         }
         for (const chunk of chunks) {
           throwIfAborted(abortSignal);
-          results.push(await handler.sendText(chunk));
+          const hookCheck = await runOutboundHook(chunk);
+          if (!hookCheck.allowed) {
+            continue;
+          }
+          results.push(await handler.sendText(hookCheck.content));
         }
       }
       return;
@@ -264,7 +312,11 @@ export async function deliverOutboundPayloads(params: {
     const chunks = handler.chunker(text, textLimit);
     for (const chunk of chunks) {
       throwIfAborted(abortSignal);
-      results.push(await handler.sendText(chunk));
+      const hookCheck = await runOutboundHook(chunk);
+      if (!hookCheck.allowed) {
+        continue;
+      }
+      results.push(await handler.sendText(hookCheck.content));
     }
   };
 
