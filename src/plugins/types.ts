@@ -366,6 +366,12 @@ export type PluginHookMessageSendingResult = {
   cancel?: boolean;
 };
 
+// message_received result
+export type PluginHookMessageReceivedResult = {
+  content?: string;
+  cancel?: boolean;
+};
+
 // message_sent hook
 export type PluginHookMessageSentEvent = {
   to: string;
@@ -478,7 +484,7 @@ export type PluginHookHandlerMap = {
   message_received: (
     event: PluginHookMessageReceivedEvent,
     ctx: PluginHookMessageContext,
-  ) => Promise<void> | void;
+  ) => Promise<PluginHookMessageReceivedResult | void> | PluginHookMessageReceivedResult | void;
   message_sending: (
     event: PluginHookMessageSendingEvent,
     ctx: PluginHookMessageContext,
