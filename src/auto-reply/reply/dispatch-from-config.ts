@@ -200,7 +200,7 @@ export async function dispatchReplyFromConfig(params: {
         );
         recordProcessed("skipped", { reason: "cancelled_by_plugin" });
         markIdle("message_cancelled");
-        return;
+        return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
       }
     } catch (err) {
       logVerbose(`dispatch-from-config: message_received hook failed: ${String(err)}`);
